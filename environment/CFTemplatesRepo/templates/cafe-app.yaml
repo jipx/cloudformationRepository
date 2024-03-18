@@ -36,14 +36,14 @@ Resources:
             Fn::Sub: '${CafeNetworkParameter}-SubnetID'
           GroupSet:
             - !Ref CafeSG
-
+      IamInstanceProfile: CafeRole
       UserData:
         Fn::Base64:
           !Sub |
             #!/bin/bash
             yum -y update
-            yum install -y httpd mariadb-server wget
-            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd mariadb-server
+            wget amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
             systemctl enable httpd
             systemctl start httpd
             systemctl enable mariadb
