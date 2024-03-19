@@ -1,0 +1,25 @@
+LambdaLoadInventoryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Lambda-Load-Inventory-Role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+      Policies:
+        - PolicyName: CWLogsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+                Effect: Allow
