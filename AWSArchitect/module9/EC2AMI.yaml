@@ -7,6 +7,12 @@ Parameters:
     Default: 'arn:aws:iam::533267395270:role/LabRole'
     Description: ARN of the pre-created IAM LabRole
 
+
+  MyLabRoleInstanceProfile:
+    Type: String
+    Default: 'arn:aws:iam::533267395270:instance-profile/LabInstanceProfile'
+    Description: ARN of the pre-created IAM LabRole Instance Profile
+
   KeyName:
     Type: String
     Description: the keypair that Vocareum will use to launch EC2 instances
@@ -47,7 +53,8 @@ Resources:
         Timeout: PT10M
     Properties:
       ImageId: !Ref LatestAmiId
-      IamInstanceProfile: !Ref MyLabRole
+      #IamInstanceProfile: !Ref MyLabRole
+      IamInstanceProfile: LabInstanceProfile  # Provide only the instance profile name here, without the ARN prefix
       InstanceType: t2.micro
       NetworkInterfaces:
         - DeviceIndex: '0'
@@ -202,9 +209,10 @@ Resources:
                                           Payload=json.dumps(event))
                       return
 
-                  success({'Data': 'OK'})
+                  success({'AMIId': physicalId})
               else:
-                  success({'Data': 'OK'})
+                  #success({'Data': 'OK'})
+                  success({'AMIId': physicalId})
             except Exception as e:
               logger.info(e)
               failed(e)
@@ -226,3 +234,9 @@ Resources:
 ###########
 # Lambda execution role
 ###########
+Outputs:
+  AMIId:
+    Description: The ID of the created AMI
+    Value: !GetAtt AMIFunction.AMIId
+    Export:
+      Name: !Sub "${AWS::StackName}-AMIId"
