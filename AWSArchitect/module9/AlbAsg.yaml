@@ -1,17 +1,12 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description:  Cafe webapp instance, and Lambda that creates custom AMI.
+#Reference: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/example-templates-autoscaling.html
 
 Parameters:
   MyLabRole:
     Type: String
     Default: 'arn:aws:iam::533267395270:role/LabRole'
     Description: ARN of the pre-created IAM LabRole
-
-
-  MyLabRoleInstanceProfile:
-    Type: String
-    Default: 'arn:aws:iam::533267395270:instance-profile/LabInstanceProfile'
-    Description: ARN of the pre-created IAM LabRole Instance Profile
 
   KeyName:
     Type: String
@@ -42,24 +37,21 @@ Parameters:
     Description: Desired number of instances in the Auto Scaling Group
     Default: 2
 
-  YourIAMRole:
-    Type: AWS::IAM::Role::Name
-    Description: Name of the IAM role to be associated with the EC2 instances
-    ConstraintDescription: must be the name of an existing IAM role.
-
-  Resources:
+  
+Resources:
   MyLaunchConfig:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      ImageId: !ImportValue GoldAMIARN
+      ImageId: ami-04e2023cf536ea80e    # image id for gold image
       InstanceType: t2.micro
       SecurityGroups:
         - !ImportValue CafeSG
       IamInstanceProfile: LabInstanceProfile  # Provide only the instance profile name here, without the ARN prefix
-      Tag:
-        - Key: Name
-          Value: WebServer
-          ResourceType: instancesces  
+      #Tags:
+        #- Key: Name
+        #  Value: WebServer
+        #- Key: ResourceType
+        #  Value: instance  
 
   MyAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -70,7 +62,6 @@ Parameters:
       DesiredCapacity: !Ref DesiredCapacity
       VPCZoneIdentifier:
         - !ImportValue PrivateSubnet1
-        - !Ref PrivateSubnetID
       TargetGroupARNs:
         - !Ref MyTargetGroup
 
@@ -80,7 +71,7 @@ Parameters:
       Name: MyTargetGroup
       Port: 80
       Protocol: HTTP
-      VpcId: !Ref YourVPCId
+      VpcId: !ImportValue VPC
       HealthCheckPath: "/" # Example health check path
       HealthCheckProtocol: HTTP # Example health check protocol
       HealthCheckIntervalSeconds: 30 # Example health check interval
@@ -93,20 +84,32 @@ Parameters:
     Properties:
       Name: MyLoadBalancer
       Subnets:
-        - !Ref YourSubnetID1
-        - !Ref YourSubnetID2
+        - !ImportValue PublicSubnet1
+        - !ImportValue PublicSubnet2
       SecurityGroups:
-        - !Ref YourSecurityGroupID
-      Scheme: internet-facing # or internal, depending on your setup
+        - !ImportValue  CafeSG
+      Scheme: internet-facing # or internal, depending on your setupListeners:
       Tags:
         - Key: Name
           Value: MyLoadBalancer
 
-  Outputs:
-    LoadBalancerDNSName:
-      Description: DNS name of the load balancer
-      Value: !GetAtt MyLoadBalancer.DNSName
-      Export:
-        Name: !Sub "${AWS::StackName}-LoadBalancerDNS"
+  LoadBalancerListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+        LoadBalancerArn: !Ref MyLoadBalancer
+        Port: 80
+        Protocol: HTTP
+        DefaultActions:
+            - Type: forward
+              TargetGroupArn: !Ref MyTargetGroup
+
+    
+
+Outputs:
+  LoadBalancerDNSName:
+    Description: DNS name of the load balancer
+    Value: !GetAtt MyLoadBalancer.DNSName
+    Export:
+      Name: LoadBalancerDNS
     
   

@@ -691,6 +691,18 @@ Outputs:
     Export:
       Name: VPC
 
+  PublicSubnetId1:
+    Description: The IDs of the Public subnet1
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: PublicSubnet1
+
+  PublicSubnetId2:
+    Description: The IDs of the public subnet2
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: PublicSubnet2
+
   PrivateSubnetId1:
     Description: The IDs of the private subnet1
     Value: !Ref PrivateSubnet1

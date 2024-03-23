@@ -25,12 +25,12 @@ Parameters:
   CafeDatabaseEndpointAddress:
     Type: String
     Description: Enter the endpoint URL of the existing RDS database
-    Default: 'cafedatabase.cr6ccuiumkdz.us-east-1.rds.amazonaws.com'
+    Default: 'databasestack-cafedatabase-lswcwiibr3pn.cr6ccuiumkdz.us-east-1.rds.amazonaws.com'
 
   VPC:
     Type: String
     Description: Enter the database pwd
-    Default: 'vpc-0cd53eb42e7c7ab12'
+    Default: 'vpc-02e91c62618837b67'
 
   
 
@@ -209,16 +209,15 @@ Resources:
                                           Payload=json.dumps(event))
                       return
 
-                  success({'AMIId': physicalId})
+                  success({'Data': 'OK'})
               else:
-                  #success({'Data': 'OK'})
-                  success({'AMIId': physicalId})
+                  success({'Data': 'OK'})
             except Exception as e:
               logger.info(e)
               failed(e)
       Runtime: python3.11
       Timeout: 300
-
+      
 ###########
 # Custom resource that tells CFn to send request to Lambda AMI function
 ###########
@@ -234,9 +233,3 @@ Resources:
 ###########
 # Lambda execution role
 ###########
-Outputs:
-  AMIId:
-    Description: The ID of the created AMI
-    Value: !GetAtt AMIFunction.AMIId
-    Export:
-      Name: !Sub "${AWS::StackName}-AMIId"
