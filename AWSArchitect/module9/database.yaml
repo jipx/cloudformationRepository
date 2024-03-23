@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: RDS database.
+
+Parameters:
+  MyLabRole:
+    Type: String
+    Default: "arn:aws:iam::533267395270:role/LabRole"
+    Description: ARN of the pre-created IAM LabRole
+
+  KeyName:
+    Type: String
+    Description: the keypair that Vocareum will use to launch EC2 instances
+    Default: "default-lab-key"
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+############
+# RDS DB instance, security group, and subnet group
+############
+
+  CafeDatabase:
+    Type: "AWS::RDS::DBInstance"
+    DeletionPolicy: Snapshot
+    Properties:
+      #if you are creating an RDS instance using a CloudFormation template, be sure to specify the engine type using lower-case letters.
+      Engine: mariadb
+      MasterUsername: admin
+      MasterUserPassword: !ImportValue VPC
+      DBInstanceClass: db.t3.micro
+      StorageType: gp2
+      AllocatedStorage: 10
+      MultiAZ: No
+      VPCSecurityGroups:
+        - !ImportValue  DBSecurityGroup
+      DBSubnetGroupName: !ImportValue  DBSubnetGroup
+      PubliclyAccessible: false
+      MonitoringInterval: 0
+      Tags:
+        -
+          Key: Name
+          Value: "CafeDatabase"
+
