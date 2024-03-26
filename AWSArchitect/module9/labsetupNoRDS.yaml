@@ -375,6 +375,24 @@ Resources:
           ToPort: '22'
           CidrIp: 0.0.0.0/0     ###can change to myipaddress
 
+# Security group for Application Loadbalancer
+###########
+
+  ALBSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: VPC
+    Properties:
+      GroupDescription: Enable SSH, HTTP access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ALBSG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+
 # Security group for Cafe web app instance
 ###########
 
@@ -388,10 +406,11 @@ Resources:
         - Key: Name
           Value: CafeSG
       SecurityGroupIngress:
-        - IpProtocol: tcp
+        - SourceSecurityGroupId: !Ref ALBSG # Allow traffic from ALBSG
+          IpProtocol: tcp
           FromPort: '80'
           ToPort: '80'
-          CidrIp: 0.0.0.0/0
+         
 
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -404,6 +423,9 @@ Resources:
           FromPort: 3306
           ToPort: 3306
       VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: DBSG
 
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -745,4 +767,9 @@ Outputs:
     Export:
       Name: CafeSG
 
+  ALBSecurityGroupId:
+    Description: The ID of the security group
+    Value: !Ref ALBSG
+    Export:
+      Name: ALBSG
  
