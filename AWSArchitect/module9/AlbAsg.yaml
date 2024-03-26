@@ -63,8 +63,29 @@ Resources:
       VPCZoneIdentifier:
         - !ImportValue PrivateSubnet1
       TargetGroupARNs:
-        - !Ref MyTargetGroup
-
+        - !Ref MyTargetGroup   # Target group ARN needs to be in the list format
+      Tags:
+        - 
+          Key: Name
+          Value: CafeAppServer
+          PropagateAtLaunch: true   #propogation need to be set for each key
+        - 
+          Key: ResourceType
+          Value: instance  
+          PropagateAtLaunch: true
+        - 
+          Key: Environemnt
+          Value: Dev
+          PropagateAtLaunch: true
+        - 
+          Key: Owner
+          Value: AppServerAdmin  
+          PropagateAtLaunch: true
+        - 
+          Key: CostCenter
+          Value: R&D
+          PropagateAtLaunch: true
+       
   MyTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
