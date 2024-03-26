@@ -109,7 +109,7 @@ Resources:
         - !ImportValue PublicSubnet1
         - !ImportValue PublicSubnet2
       SecurityGroups:
-        - !ImportValue  CafeSG
+        - !ImportValue  ALBSG
       Scheme: internet-facing # or internal, depending on your setupListeners:
       Tags:
         - Key: Name
