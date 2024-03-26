@@ -62,6 +62,7 @@ Resources:
       DesiredCapacity: !Ref DesiredCapacity
       VPCZoneIdentifier:
         - !ImportValue PrivateSubnet1
+        - !ImportValue PrivateSubnet2  # Add PrivateSubnet2 here
       TargetGroupARNs:
         - !Ref MyTargetGroup   # Target group ARN needs to be in the list format
       Tags:
