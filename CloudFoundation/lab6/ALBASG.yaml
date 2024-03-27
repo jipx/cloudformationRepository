@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  Cafe webapp instance, and Lambda that creates custom AMI.
+#Reference: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/example-templates-autoscaling.html
+
+Parameters:
+  MyLabRole:
+    Type: String
+    Default: 'arn:aws:iam::533267395270:role/LabRole'
+    Description: ARN of the pre-created IAM LabRole
+
+  KeyName:
+    Type: String
+    Description: the keypair that Vocareum will use to launch EC2 instances
+    Default: "default-lab-key"
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    
+  
+  VPC:
+    Type: String
+    Description: Enter the database pwd
+    Default: 'vpc-0cd53eb42e7c7ab12'
+
+  #Autoscaling Group parameters
+  MinSize:
+    Type: Number
+    Description: Minimum number of instances in the Auto Scaling Group
+    Default: 2
+  MaxSize:
+    Type: Number
+    Description: Maximum number of instances in the Auto Scaling Group
+    Default: 6
+  DesiredCapacity:
+    Type: Number
+    Description: Desired number of instances in the Auto Scaling Group
+    Default: 2
+
+  
+Resources:
+  MyLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-04e2023cf536ea80e    # image id for gold image
+      InstanceType: t2.micro
+      SecurityGroups:
+        - !ImportValue CafeSG
+      IamInstanceProfile: LabInstanceProfile  # Provide only the instance profile name here, without the ARN prefix
+      #Tags:
+        #- Key: Name
+        #  Value: WebServer
+        #- Key: ResourceType
+        #  Value: instance  
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfigurationName: !Ref MyLaunchConfig
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      VPCZoneIdentifier:
+        - !ImportValue PrivateSubnet1
+        - !ImportValue PrivateSubnet2  # Add PrivateSubnet2 here
+      TargetGroupARNs:
+        - !Ref MyTargetGroup   # Target group ARN needs to be in the list format
+      Tags:
+        - 
+          Key: Name
+          Value: CafeAppServer
+          PropagateAtLaunch: true   #propogation need to be set for each key
+        - 
+          Key: ResourceType
+          Value: instance  
+          PropagateAtLaunch: true
+        - 
+          Key: Environemnt
+          Value: Dev
+          PropagateAtLaunch: true
+        - 
+          Key: Owner
+          Value: AppServerAdmin  
+          PropagateAtLaunch: true
+        - 
+          Key: CostCenter
+          Value: R&D
+          PropagateAtLaunch: true
+       
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: MyTargetGroup
+      Port: 80
+      Protocol: HTTP
+      VpcId: !ImportValue VPC
+      HealthCheckPath: "/" # Example health check path
+      HealthCheckProtocol: HTTP # Example health check protocol
+      HealthCheckIntervalSeconds: 30 # Example health check interval
+      HealthCheckTimeoutSeconds: 10 # Example health check timeout
+      HealthyThresholdCount: 3 # Example healthy threshold count
+      UnhealthyThresholdCount: 3 # Example unhealthy threshold count
+
+  MyLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: MyLoadBalancer
+      Subnets:
+        - !ImportValue PublicSubnet1
+        - !ImportValue PublicSubnet2
+      SecurityGroups:
+        - !ImportValue  ALBSG
+      Scheme: internet-facing # or internal, depending on your setupListeners:
+      Tags:
+        - Key: Name
+          Value: MyLoadBalancer
+
+  LoadBalancerListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+        LoadBalancerArn: !Ref MyLoadBalancer
+        Port: 80
+        Protocol: HTTP
+        DefaultActions:
+            - Type: forward
+              TargetGroupArn: !Ref MyTargetGroup
+
+    
+
+Outputs:
+  LoadBalancerDNSName:
+    Description: DNS name of the load balancer
+    Value: !GetAtt MyLoadBalancer.DNSName
+    Export:
+      Name: LoadBalancerDNS
+    
+  
