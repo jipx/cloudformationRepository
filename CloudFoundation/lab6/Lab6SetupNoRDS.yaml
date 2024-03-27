@@ -1,0 +1,775 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC with 2 public and 4 private subnets, Cafe webapp instance, RDS database, and Lambda that creates custom AMI.
+
+Parameters:
+  MyLabRole:
+    Type: String
+    Default: "arn:aws:iam::533267395270:role/LabRole"
+    Description: ARN of the pre-created IAM LabRole
+
+  KeyName:
+    Type: String
+    Description: the keypair that Vocareum will use to launch EC2 instances
+    Default: "default-lab-key"
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  QuestionTableRead:
+    Description: Read capacity units for DynamoDB table
+    Type: String
+    MinLength: '1'
+    MaxLength: '12'
+    AllowedPattern: '[0-9]*'
+    Default: '1'
+
+  QuestionTableWrite:
+    Description: Write capacity units for DynamoDB table
+    Type: String
+    MinLength: '1'
+    MaxLength: '6'
+    AllowedPattern: '[0-9]*'
+    Default: '1'
+
+Conditions:
+  InUsEast1: !Equals
+    - !Ref 'AWS::Region'
+    - us-east-1
+
+Resources:
+
+###########
+# VPC with Internet Gateway
+###########
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Lab VPC
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Lab IGW
+
+  VPCtoIGWConnection:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn:
+      - IGW
+      - VPC
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+
+###########
+# Public Subnet 1 and Route Table
+###########
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Public Subnet 1
+
+  PublicRouteTable1:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table 1
+
+  PublicRoute1:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - PublicRouteTable1
+      - VPCtoIGWConnection
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable1
+
+  PublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PublicRouteTable1
+      - PublicSubnet1
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      SubnetId: !Ref PublicSubnet1
+
+###########
+# Public Subnet 2 and Route Table
+###########
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Public Subnet 2
+
+  PublicRouteTable2:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table 2
+
+  PublicRoute2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - PublicRouteTable2
+      - VPCtoIGWConnection
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable2
+
+  PublicRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PublicRouteTable2
+      - PublicSubnet2
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      SubnetId: !Ref PublicSubnet2
+
+
+###########
+# Private Subnet 1 and Route Table
+###########
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Private Subnet 1
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table 1
+
+  PrivateRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PrivateRouteTable1
+      - PrivateSubnet1
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+###########
+# Private Subnet 2 and Route Table
+###########
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Private Subnet 2
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table 2
+
+  PrivateRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PrivateRouteTable2
+      - PrivateSubnet2
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+###########
+# Private Subnet 3 and Route Table
+###########
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select
+        - 2
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Private Subnet 3
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table 3
+
+  PrivateRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PrivateRouteTable3
+      - PrivateSubnet3
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      SubnetId: !Ref PrivateSubnet3
+
+###########
+# Private Subnet 4 and Route Table
+###########
+
+  PrivateSubnet4:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.5.0/24
+      AvailabilityZone: !Select
+        - 3
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Private Subnet 4
+
+  PrivateRouteTable4:
+    Type: AWS::EC2::RouteTable
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table 4
+
+  PrivateRouteTableAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PrivateRouteTable4
+      - PrivateSubnet4
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable4
+      SubnetId: !Ref PrivateSubnet4
+
+###########
+# NAT Gateway in PublicSubnet 1
+###########
+
+  NATGateway:
+    DependsOn: PrivateSubnet1
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !GetAtt
+        - NATGatewayEIP
+        - AllocationId
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NATGateway
+
+###########
+# NAT Gateway in PublicSubnet 2
+###########
+
+  
+
+###########
+# Bastion Host
+#as a jump server or a jump box, is a special-purpose server that acts as a secure gateway for accessing and managing other servers in a private network. It is typically placed in a public subnet of a Virtual Private Cloud (VPC) and is used to securely access and manage servers in private subnets without exposing them directly to the internet.
+###########
+  BastionInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !Ref LatestAmiId
+      #IamInstanceProfile: !Ref MyLabRole
+      InstanceType: t2.micro
+      SubnetId: !Ref PublicSubnet1  # Assign instance to PublicSubnet1
+      SecurityGroupIds:
+        - !Ref BastionSG
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: BastionHost
+      KeyName: vockey
+
+  BastionSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: VPC
+    Properties:
+      GroupDescription: Enable SSH, HTTP access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: BastionSG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0     ###can change to myipaddress
+
+# Security group for Application Loadbalancer
+###########
+
+  ALBSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: VPC
+    Properties:
+      GroupDescription: Enable SSH, HTTP access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ALBSG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+
+# Security group for Cafe web app instance
+###########
+
+  CafeSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: VPC
+    Properties:
+      GroupDescription: Enable SSH, HTTP access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: CafeSG
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref ALBSG # Allow traffic from ALBSG
+          IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+         
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB-SG
+      GroupName: DB-SG
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref CafeSG
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: DBSG
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Lab-DB-Subnet-Group
+      DBSubnetGroupName: Lab-DB-Subnet-Group
+      SubnetIds:
+        - !Ref PrivateSubnet3
+        - !Ref PrivateSubnet4
+      Tags:
+        -
+          Key: Name
+          Value: DBSubnetGroup
+
+
+###########
+# IAM Role for Cafe web app
+###########
+
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "qnum"
+          AttributeType: S
+      KeySchema:
+        - AttributeName: "qnum"
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: !Ref 'QuestionTableRead'
+        WriteCapacityUnits: !Ref 'QuestionTableWrite'
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TableName: answers
+
+  RecordAnswersLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          console.log('Loading event');
+          var AWS = require('@aws-sdk/client-dynamodb');
+          var dynamodb = new AWS.DynamoDB();
+          const querystring = require('querystring');
+          exports.handler = function(event, context, callback) {
+              console.log("Request received:\n", JSON.stringify(event));
+              console.log("Context received:\n", JSON.stringify(context));
+              const params = querystring.parse(event.body);
+              var tableName = "answers";
+              var datetime = new Date().getTime().toString();
+              var qnum= params.qnum;
+              var answer = params.answer;
+              dynamodb.putItem({
+                      "TableName": tableName,
+                      "Item": {
+                          "qnum": {
+                              "S": qnum
+                          },
+                          "answer": {
+                              "S": answer
+                          }
+                      }
+                  }, function(err, data) {
+                      if (err) {
+                          context.fail('ERROR: Dynamo failed: ' + err);
+                      } else {
+                          console.log('Dynamo Success: ' + JSON.stringify(data, null, '  '));
+                          context.succeed('Answer submitted successfully. Click the browser back button to submit an answer to another question.');
+                      }
+                  });
+              // Generate HTML.
+              const html = '<html><p>Answer to question ' + qnum + ' submitted successfully.</p><p>Use the browser back button to return to the question list to submit an answer to any other question.</p></html>';
+
+              // // Return HTML as the result.
+              callback(null, html);
+          }
+      FunctionName: RecordAnswers
+      Handler: index.handler
+      Role: !Ref MyLabRole
+      Runtime: nodejs18.x
+      Timeout: 300
+
+  
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    DependsOn:
+      - RecordAnswersLambdaFunction
+    Properties:
+      Name: RecordAnswersApi
+      Description: "API Gateway collects student answers"
+      Body:
+        swagger: "2.0"
+        info:
+          version: "2020-07-10T17:39:23Z"
+          title: "RecordAnswersApi"
+        host: "${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
+        basePath: "/RecordAnswers"
+        schemes:
+        - "https"
+        paths:
+          /:
+            post:
+              consumes:
+              - "application/x-www-form-urlencoded"
+              produces:
+              - "text/html"
+              responses:
+                "200":
+                  headers:
+                    Content-Type:
+                      type: "string"
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:${AWS::AccountId}:function:RecordAnswers/invocations
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Content-Type: "'text/html'"
+                    responseTemplates:
+                      text/html: "$input.path('$')"
+                requestTemplates:
+                  application/x-www-form-urlencoded: "{\"body\": \"$input.body\"}"
+                passthroughBehavior: "when_no_templates"
+                httpMethod: "POST"
+                contentHandling: "CONVERT_TO_TEXT"
+                type: "aws"
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: RecordAnswers
+
+  PermissionForApiGatewayToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: RecordAnswers
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/POST/
+
+  
+  htmlBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: questions.html
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: False
+        BlockPublicPolicy: False
+        IgnorePublicAcls: False
+        RestrictPublicBuckets: False
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - HEAD
+              - POST
+              - DELETE
+            AllowedOrigins:
+              - '*'
+
+  tweekHtmlFileLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: ApiGateway
+    Properties:
+      Description: updates the questions.html file with correct API endpoint.
+      Code:
+        ZipFile: !Sub |
+          import boto3, os, sys, subprocess, time, random, urllib3, urllib.request
+          def lambda_handler(event, context):
+            # TO DO: set the urlRoot to the dir in S3 large objects that hosts the questions HTML files in each language.
+            # Be sure to keep the trailing backslash.
+            urlRoot = "http://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/mod9-challenge/"
+
+            #NOTE: DO NOT MODIFY ANY CODE BELOW THIS LINE unless you need to add support for a language not already listed here
+            pages = ['questions.html', 'questions-es.html', 'questions-ja.html', 'questions-ko.html', 'questions-pt.html', 'questions-zh.html']
+            pagesDict = {"questions.html": "", "questions-es.html": "", "questions-ja.html": "", "questions-ko.html": "", "questions-pt.html": "", "questions-zh.html": ""}
+
+            #Check which languages the questions have been translated into
+            for item in pages:
+              url = urlRoot + item
+              print(url)
+              http = urllib3.PoolManager()
+              r = http.request('GET', url)
+              if (r.status == 200 ):
+                pagesDict[item] = 'y'
+              else:
+                pagesDict[item] = 'n'
+            for item in pagesDict.items():
+              print(item)
+
+            #copy each page to S3, only setting hyperlinks in each localized page for langs that are available
+            for key, value in pagesDict.items():
+              if (value == 'y'):
+                url = urlRoot + key
+                print("Processing " + url + " page.")
+                response = urllib.request.urlopen(url)
+                data = response.read()
+                text = data.decode('utf-8')
+                # Find/replace the REPLACE substrings with the apiEndpoint variable
+                endPoint = os.environ['apiEndpoint']
+                text = text.replace('REPLACE', str(endPoint))
+
+                if (pagesDict['questions-es.html'] == 'y'):
+                  text = text.replace('REPL-ES', str('| <a href="questions-es.html">Spanish</a>'))
+                else:
+                  text = text.replace('REPL-ES', str(''))
+
+                if (pagesDict['questions-ja.html'] == 'y'):
+                  text = text.replace('REPL-JA', str('| <a href="questions-ja.html">Japanese</a>'))
+                else:
+                  text = text.replace('REPL-JA', str(''))
+
+                if (pagesDict['questions-ko.html'] == 'y'):
+                  text = text.replace('REPL-KO', str('| <a href="questions-ko.html">Korean</a>'))
+                else:
+                  text = text.replace('REPL-KO', str(''))
+
+                if (pagesDict['questions-pt.html'] == 'y'):
+                  text = text.replace('REPL-PT', str('| <a href="questions-pt.html">Portuguese</a>'))
+                else:
+                  text = text.replace('REPL-PT', str(''))
+
+                if (pagesDict['questions-zh.html'] == 'y'):
+                  text = text.replace('REPL-ZH', str('| <a href="questions-zh.html">Chinese</a>'))
+                else:
+                  text = text.replace('REPL-ZH', str(''))
+
+                bucketName = os.environ['writeToBucketName']
+                # Write the resulting string as a file to the S3 bucket in this account
+                s3 = boto3.resource('s3')
+                print("Writing " + key + " file to s3")
+                result = s3.Object(bucketName, key).put(Body=text, ACL='public-read', ContentType='text/html')
+                print(result)
+      Environment:
+        Variables:
+          writeToBucketName : !Ref htmlBucket
+          apiEndpoint: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/RecordAnswers
+      Handler: index.lambda_handler
+      Role: !Ref MyLabRole
+      Runtime: python3.9
+      Timeout: 300
+
+  
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: ScheduledRule
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt 'tweekHtmlFileLambda.Arn'
+          Id: TargetFunctionV1
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref tweekHtmlFileLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+###########
+# awsstudent user & policy for Cloud9 in Vocareum
+###########
+    
+
+Outputs:
+  URL:
+    Description: Load this URL to access and answer questions that appear in this lab.
+    Value: !Sub
+      - <a href="http://${URL}.s3-website.${AWS::Region}.amazonaws.com/" target="_blank">Access the multiple choice questions</a>
+      - { URL: !Ref htmlBucket}
+
+  VPCId:
+    Description: The ID of the VPC
+    Value: !Ref VPC
+    Export:
+      Name: VPC
+
+  PublicSubnetId1:
+    Description: The IDs of the Public subnet1
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: PublicSubnet1
+
+  PublicSubnetId2:
+    Description: The IDs of the public subnet2
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: PublicSubnet2
+
+  PrivateSubnetId1:
+    Description: The IDs of the private subnet1
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: PrivateSubnet1
+
+  PrivateSubnetId2:
+    Description: The IDs of the private subnet2
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: PrivateSubnet2
+
+  PrivateSubnetId3:
+    Description: The IDs of the private subnet3
+    Value: !Ref PrivateSubnet3
+    Export:
+      Name: PrivateSubnet3
+
+  PrivateSubnetId4:
+    Description: The IDs of the private subnet4
+    Value: !Ref PrivateSubnet4
+    Export:
+      Name: PrivateSubnet4
+
+  SecurityGroupId:
+    Description: The ID of the security group
+    Value: !Ref DBSecurityGroup
+    Export:
+      Name: DBSecurityGroup
+
+  DBSubnetGroupId:
+    Description: The ID of the DB subnet group
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: DBSubnetGroup   
+
+  CafeSecurityGroupId:
+    Description: The ID of the security group
+    Value: !Ref CafeSG
+    Export:
+      Name: CafeSG
+
+  ALBSecurityGroupId:
+    Description: The ID of the security group
+    Value: !Ref ALBSG
+    Export:
+      Name: ALBSG
+ 
