@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  Cafe webapp instance, and Lambda that creates custom AMI.
+
+Parameters:
+  MyLabRole:
+    Type: String
+    Default: 'arn:aws:iam::533267395270:role/LabRole'
+    Description: ARN of the pre-created IAM LabRole
+
+
+  MyLabRoleInstanceProfile:
+    Type: String
+    Default: 'arn:aws:iam::533267395270:instance-profile/LabInstanceProfile'
+    Description: ARN of the pre-created IAM LabRole Instance Profile
+
+  KeyName:
+    Type: String
+    Description: the keypair that Vocareum will use to launch EC2 instances
+    Default: "default-lab-key"
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    
+  CafeDatabaseEndpointAddress:
+    Type: String
+    Description: Enter the endpoint URL of the existing RDS database
+    Default: 'databasestack-cafedatabase-lswcwiibr3pn.cr6ccuiumkdz.us-east-1.rds.amazonaws.com'
+
+  VPC:
+    Type: String
+    Description: Enter the database pwd
+    Default: 'vpc-02e91c62618837b67'
+
+  
+
+Resources:
+###########
+# EC2 instance for cafe web app that uses RDS.
+###########
+
+  
+
+  CafeInstance:
+    Type: 'AWS::EC2::Instance'
+    #DependsOn:
+      #- VPC
+      #- CafeSG
+      #- PrivateSubnet1
+      #- CafeDatabase
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+    Properties:
+      ImageId: !Ref LatestAmiId
+      #IamInstanceProfile: !Ref MyLabRole
+      IamInstanceProfile: LabInstanceProfile  # Provide only the instance profile name here, without the ARN prefix
+      InstanceType: t2.micro
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !ImportValue  PrivateSubnet1
+          GroupSet:
+            - !ImportValue  CafeSG
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: CafeWebAppServer
+      KeyName: vockey
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum -y update
+
+            ###
+            # ENABLE SSM
+            ###
+            systemctl enable amazon-ssm-agent
+            systemctl start amazon-ssm-agent
+
+            ###
+            # INSTALL THE CAFE APP
+            ###
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum -y install httpd mariadb-server wget nmap
+            systemctl enable httpd
+            systemctl start httpd
+            #systemctl enable mariadb
+            #systemctl start mariadb
+            echo '<html><h1>Hello From Your Web Application Server!</h1></html>' > /var/www/html/index.html
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+            echo '<?php phpinfo(); ?>' > /var/www/html/phpinfo.php
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/Module-9-Challenge-Lab/setup.tar.gz
+            tar -zxvf setup.tar.gz
+            #wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/Module-9-Challenge-Lab/db.tar.gz
+            #tar -zxvf db.tar.gz
+            wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/Module-9-Challenge-Lab/cafe.tar.gz
+            tar -zxvf cafe.tar.gz -C /var/www/html/
+            cd setup
+            echo "Setting the application parameter values in the Parameter Store..."
+            region=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone|sed 's/.$//')
+            publicDNS=$(curl http://169.254.169.254/latest/meta-data/public-hostname)
+            echo "Public DNS =" $publicDNS
+
+            ###
+            # SET PARAM STORE TO USE RDS INSTANCE
+            ###
+            aws ssm put-parameter --name "/cafe/showServerInfo" --type "String" --value "true" --description "Show Server Information Flag" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/timeZone" --type "String" --value "America/New_York" --description "Time Zone" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/currency" --type "String" --value '$' --description "Currency Symbol" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/dbUrl" --type "String" --value ${CafeDatabaseEndpointAddress} --description "Database URL" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/dbName" --type "String" --value "cafe_db" --description "Database Name" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/dbUser" --type "String" --value "admin" --description "Database User Name" --overwrite --region $region
+            aws ssm put-parameter --name "/cafe/dbPassword" --type "String" --value ${VPC} --description "Database Password" --overwrite --region $region
+            #DONE running set-app-parameters.sh steps inline
+            #insert 24 rows of orders into the RDS database
+            wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/Module-9-Challenge-Lab/CafeDbDump.sql
+            sleep 2
+            sec=${VPC}
+            mysql -u admin -p$sec --host ${CafeDatabaseEndpointAddress} < CafeDbDump.sql
+            rm CafeDbDump.sql
+            # Signal the status from cfn-init
+            /opt/aws/bin/cfn-signal --exit-code 0 --resource CafeInstance --region ${AWS::Region} --stack ${AWS::StackName}
+
+###########
+# Lambda function that creates cafe web app server AMI
+###########
+
+  AMIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !Ref MyLabRole
+      Code:
+        ZipFile: !Sub |
+          import logging
+          import cfnresponse
+          import json
+          import boto3
+          from threading import Timer
+          from botocore.exceptions import WaiterError
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+
+            ec2 = boto3.resource('ec2')
+            physicalId = None
+
+            if 'PhysicalResourceId' in event:
+              physicalId = event['PhysicalResourceId']
+
+            def success(data={}):
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalId)
+
+            def failed(e):
+              cfnresponse.send(event, context, cfnresponse.FAILED, str(e), physicalId)
+
+            logger.info('Request received: %s\n' % json.dumps(event))
+
+            try:
+              instanceId = event['ResourceProperties']['InstanceId']
+              logger.info(f'instanceId: {instanceId}')
+              if not instanceId:
+                  raise 'InstanceID required'
+
+              if not 'RequestType' in event:
+                  success({'Data':'Unhandled request type'})
+                  return
+
+              if event['RequestType'] == 'Delete':
+                  if not physicalId.startswith('ami-'):
+                      raise f'Unknown PhysicalId: {physicalId}'
+
+                  ec2client = boto3.client('ec2')
+                  images = ec2client.describe_images(ImageIds=[physicalId])
+                  for image in images['Images']:
+                      ec2.Image(image['ImageId']).deregister()
+                      snapshots = ([bdm['Ebs']['SnapshotId'] for bdm in image['BlockDeviceMappings'] if 'Ebs' in bdm and 'SnapshotId' in bdm['Ebs']])
+                      for snapshot in snapshots:
+                          ec2.Snapshot(snapshot).delete()
+                  success({'Data':'OK'})
+
+              elif event['RequestType'] in set(['Create','Update']):
+                  if not physicalId:
+                    instance = ec2.Instance(instanceId)
+                    image = instance.create_image(Name="Cafe WebServer Image")
+                    physicalId = image.image_id
+                  else:
+                    logger.info('Continuing in awaiting image available: %s\n' % physicalId)
+
+                  ec2client = boto3.client('ec2')
+                  waiter = ec2client.get_waiter('image_available')
+                  try:
+                      waiter.wait(ImageIds=[physicalId], WaiterConfig={'Delay': 30, 'MaxAttempts': 6})
+                  except WaiterError as e:
+                      # Request the same event but set PhysicalResourceId so that the AMI is not created again
+                      event['PhysicalResourceId'] = physicalId
+                      logger.info('Timeout reached, continuing function: %s\n' % json.dumps(event))
+                      lambda_client = boto3.client('lambda')
+                      lambda_client.invoke(FunctionName=context.invoked_function_arn,
+                                          InvocationType='Event',
+                                          Payload=json.dumps(event))
+                      return
+
+                  success({'Data': 'OK'})
+              else:
+                  success({'Data': 'OK'})
+            except Exception as e:
+              logger.info(e)
+              failed(e)
+      Runtime: python3.11
+      Timeout: 300
+      
+###########
+# Custom resource that tells CFn to send request to Lambda AMI function
+###########
+
+  AMI:
+    Type: Custom::AMI
+    DependsOn:
+    - CafeInstance
+    Properties:
+      ServiceToken: !GetAtt AMIFunction.Arn
+      InstanceId: !Ref CafeInstance
+
+###########
+# Lambda execution role
+###########
