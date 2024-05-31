@@ -1,27 +1,31 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description:  Cafe webapp instance, and Lambda that creates custom AMI.
+Description: Cafe webapp instance, and Lambda that creates custom AMI.
 #Reference: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/example-templates-autoscaling.html
 
 Parameters:
   MyLabRole:
     Type: String
-    Default: 'arn:aws:iam::533267395270:role/LabRole'
+    Default: arn:aws:iam::533267395270:role/LabRole
     Description: ARN of the pre-created IAM LabRole
 
   KeyName:
     Type: String
     Description: the keypair that Vocareum will use to launch EC2 instances
-    Default: "default-lab-key"
+    Default: default-lab-key
 
   LatestAmiId:
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
-    
-  
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+  GoldImageId:
+    Type: String
+    Description: Iage ID for the gold image
+    Default: ami-018beda7acc5e9177
+
   VPC:
     Type: String
     Description: Enter the database pwd
-    Default: 'vpc-0cd53eb42e7c7ab12'
+    Default: vpc-0cd53eb42e7c7ab12
 
   #Autoscaling Group parameters
   MinSize:
@@ -37,21 +41,20 @@ Parameters:
     Description: Desired number of instances in the Auto Scaling Group
     Default: 2
 
-  
 Resources:
   MyLaunchConfig:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      ImageId: ami-04e2023cf536ea80e    # image id for gold image
+      ImageId: !Ref GoldImageId # image id for gold image
       InstanceType: t2.micro
       SecurityGroups:
         - !ImportValue CafeSG
-      IamInstanceProfile: LabInstanceProfile  # Provide only the instance profile name here, without the ARN prefix
+      IamInstanceProfile: LabInstanceProfile # Provide only the instance profile name here, without the ARN prefix
       #Tags:
-        #- Key: Name
-        #  Value: WebServer
-        #- Key: ResourceType
-        #  Value: instance  
+      #- Key: Name
+      #  Value: WebServer
+      #- Key: ResourceType
+      #  Value: instance  
 
   MyAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -62,31 +65,26 @@ Resources:
       DesiredCapacity: !Ref DesiredCapacity
       VPCZoneIdentifier:
         - !ImportValue PrivateSubnet1
-        - !ImportValue PrivateSubnet2  # Add PrivateSubnet2 here
+        - !ImportValue PrivateSubnet2 # Add PrivateSubnet2 here
       TargetGroupARNs:
-        - !Ref MyTargetGroup   # Target group ARN needs to be in the list format
+        - !Ref MyTargetGroup # Target group ARN needs to be in the list format
       Tags:
-        - 
-          Key: Name
+        - Key: Name
           Value: CafeAppServer
-          PropagateAtLaunch: true   #propogation need to be set for each key
-        - 
-          Key: ResourceType
-          Value: instance  
+          PropagateAtLaunch: true #propogation need to be set for each key
+        - Key: ResourceType
+          Value: instance
           PropagateAtLaunch: true
-        - 
-          Key: Environemnt
+        - Key: Environemnt
           Value: Dev
           PropagateAtLaunch: true
-        - 
-          Key: Owner
-          Value: AppServerAdmin  
+        - Key: Owner
+          Value: AppServerAdmin
           PropagateAtLaunch: true
-        - 
-          Key: CostCenter
+        - Key: CostCenter
           Value: R&D
           PropagateAtLaunch: true
-       
+
   MyTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -94,7 +92,7 @@ Resources:
       Port: 80
       Protocol: HTTP
       VpcId: !ImportValue VPC
-      HealthCheckPath: "/" # Example health check path
+      HealthCheckPath: / # Example health check path
       HealthCheckProtocol: HTTP # Example health check protocol
       HealthCheckIntervalSeconds: 30 # Example health check interval
       HealthCheckTimeoutSeconds: 10 # Example health check timeout
@@ -109,7 +107,7 @@ Resources:
         - !ImportValue PublicSubnet1
         - !ImportValue PublicSubnet2
       SecurityGroups:
-        - !ImportValue  ALBSG
+        - !ImportValue ALBSG
       Scheme: internet-facing # or internal, depending on your setupListeners:
       Tags:
         - Key: Name
@@ -118,14 +116,12 @@ Resources:
   LoadBalancerListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-        LoadBalancerArn: !Ref MyLoadBalancer
-        Port: 80
-        Protocol: HTTP
-        DefaultActions:
-            - Type: forward
-              TargetGroupArn: !Ref MyTargetGroup
-
-    
+      LoadBalancerArn: !Ref MyLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref MyTargetGroup
 
 Outputs:
   LoadBalancerDNSName:
@@ -133,5 +129,3 @@ Outputs:
     Value: !GetAtt MyLoadBalancer.DNSName
     Export:
       Name: LoadBalancerDNS
-    
-  
