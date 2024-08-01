@@ -1,0 +1,25 @@
+#!/bin/bash -ex
+
+# Updated to use Amazon Linux 2023
+# Update all packages
+dnf update -y
+# Install Apache
+dnf install -y httpd
+# Install PHP and required modules
+dnf install -y php php-fpm php-mysqli php-json php-devel
+# Install MariaDB server
+dnf install -y mariadb105-server
+# Enable and start Apache
+/usr/bin/systemctl enable httpd
+/usr/bin/systemctl start httpd
+# Install unzip if not already installed
+dnf install -y unzip
+
+# Change to the web root directory
+cd /var/www/html
+# Download the application zip file
+wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/CUR-TF-100-ACCLFO-2/lab6-scaling/lab-app.zip
+# Unzip the application
+unzip lab-app.zip -d /var/www/html/
+# Change ownership of the application files
+chown -R apache:root /var/www/html/rds.conf.php
